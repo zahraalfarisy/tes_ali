@@ -1,14 +1,31 @@
+const AWS = require('aws-sdk');
 const mediaRepository = require('../repositories/media.repository');
 const baseResponse = require('../utils/baseResponse');
-const fs = require('fs');
-const path = require('path');
 
-const uploadDir = path.join(__dirname, '..', 'uploads');
+// Configure AWS S3
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION
+});
 
-// Pastikan folder uploads ada
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
+// Function to upload file to AWS S3
+const uploadToS3 = async (file) => {
+  const params = {
+    Bucket: process.env.AWS_BUCKET_NAME, // Your S3 bucket name
+    Key: `uploads/${file.originalname}`, // Key for the file in the S3 bucket
+    Body: file.buffer, // The file content
+    ContentType: file.mimetype,
+    ACL: 'public-read', // Make the file public or private as needed
+  };
+
+  try {
+    const data = await s3.upload(params).promise();
+    return data.Location; // Return the file URL
+  } catch (err) {
+    throw new Error('Error uploading to S3: ' + err.message);
+  }
+};
 
 // Get all media
 exports.getAllMedia = async (req, res) => {
@@ -24,14 +41,14 @@ exports.getAllMedia = async (req, res) => {
 // Get media by ID
 exports.getMediaById = async (req, res) => {
   const id = req.params.id;
-
+  
   try {
     const media = await mediaRepository.getMediaById(id);
-
+    
     if (!media) {
       return baseResponse(res, false, 404, "Media not found", null);
     }
-
+    
     return baseResponse(res, true, 200, "Media retrieved successfully", media);
   } catch (error) {
     console.error("Error retrieving media:", error);
@@ -39,12 +56,12 @@ exports.getMediaById = async (req, res) => {
   }
 };
 
-// Create new media
+// Create media
 exports.createMedia = async (req, res) => {
   const { title, type, status, rating, review } = req.body;
   const image = req.file;
 
-  // Validate input
+  // Validate required fields
   if (!title || !type || !status) {
     return baseResponse(res, false, 400, "Title, type, and status are required", null);
   }
@@ -66,14 +83,18 @@ exports.createMedia = async (req, res) => {
   }
 
   try {
-    // Save the file locally (upload logic would be handled here)
+    // Upload image to S3 and get the URL
+    const imageUrl = await uploadToS3(image);
+    
+    // Create media record in the repository
     const media = await mediaRepository.createMedia({
       title,
       type,
       status,
       rating: rating || null,
-      review: review || null
-    }, image);
+      review: review || null,
+      imageUrl, // Save the URL of the uploaded image
+    });
 
     return baseResponse(res, true, 201, "Media created successfully", media);
   } catch (error) {
@@ -88,17 +109,15 @@ exports.updateMedia = async (req, res) => {
   const { title, type, status, rating, review } = req.body;
   const image = req.file;
 
-  // Validate media type if provided
+  // Validate media type and status if provided
   if (type && type !== 'movie' && type !== 'book') {
     return baseResponse(res, false, 400, "Type must be either 'movie' or 'book'", null);
   }
 
-  // Validate status if provided
   if (status && status !== 'watched' && status !== 'plan' && status !== 'read') {
     return baseResponse(res, false, 400, "Status must be 'watched', 'read', or 'plan'", null);
   }
 
-  // Validate rating if provided
   if (rating && (rating < 1 || rating > 5)) {
     return baseResponse(res, false, 400, "Rating must be between 1 and 5", null);
   }
@@ -109,7 +128,7 @@ exports.updateMedia = async (req, res) => {
       type,
       status,
       rating,
-      review
+      review,
     }, image);
 
     return baseResponse(res, true, 200, "Media updated successfully", media);
@@ -117,7 +136,6 @@ exports.updateMedia = async (req, res) => {
     if (error.message === "Media not found") {
       return baseResponse(res, false, 404, "Media not found", null);
     }
-
     console.error("Error updating media:", error);
     return baseResponse(res, false, 500, "Error updating media", error.message);
   }
@@ -134,17 +152,15 @@ exports.deleteMedia = async (req, res) => {
     if (error.message === "Media not found") {
       return baseResponse(res, false, 404, "Media not found", null);
     }
-
     console.error("Error deleting media:", error);
     return baseResponse(res, false, 500, "Error deleting media", error.message);
   }
 };
 
-// Filter media by type (movie or book)
+// Filter media by type
 exports.filterMedia = async (req, res) => {
   const type = req.params.type;
 
-  // Validate media type
   if (type !== 'movie' && type !== 'book') {
     return baseResponse(res, false, 400, "Type must be either 'movie' or 'book'", null);
   }
