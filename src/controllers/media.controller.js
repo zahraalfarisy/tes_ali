@@ -1,29 +1,57 @@
 const cloudinary = require('cloudinary').v2;
+const fs = require('fs');
 const mediaRepository = require('../repositories/media.repository');
 const baseResponse = require('../utils/baseResponse');
-const fs = require('fs');
-const path = require('path');
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: 'dgbrnqwfe',
-  api_key: '675297929318649',
-  api_secret: 'WK2khkxX4g67qth5LzAnKHZ34XA'
-});
+// Configure Cloudinary from environment variables
+// Format: cloudinary://api_key:api_secret@cloud_name
+const cloudinaryUrl = process.env.CLOUDINARY_URL;
+if (cloudinaryUrl) {
+  // Cloudinary automatically configures from the URL
+  console.log('Cloudinary configured from environment variable');
+} else {
+  // Fallback to hardcoded config from .env if parsing fails
+  cloudinary.config({
+    cloud_name: 'dgbrnqwfe',
+    api_key: '675297929318649',
+    api_secret: 'WK2khkxX4g67qth5LzAnKHZ34XA'
+  });
+  console.log('Cloudinary configured with fallback values');
+}
 
-// Upload to Cloudinary function
+// Function to upload file to Cloudinary
 const uploadToCloudinary = async (file) => {
   try {
+    // Check if file exists
+    if (!file || !file.path) {
+      throw new Error('No file to upload');
+    }
+
+    console.log(`Uploading file from path: ${file.path}`);
     const result = await cloudinary.uploader.upload(file.path);
-    // Delete the local file after upload
-    fs.unlinkSync(file.path);
+    
+    // Delete the temporary file after upload
+    try {
+      fs.unlinkSync(file.path);
+      console.log(`Deleted temporary file: ${file.path}`);
+    } catch (unlinkErr) {
+      console.warn(`Failed to delete temporary file: ${unlinkErr.message}`);
+    }
+    
     return result.secure_url;
   } catch (err) {
-    // Make sure to delete the local file even if upload fails
-    if (file.path && fs.existsSync(file.path)) {
-      fs.unlinkSync(file.path);
+    console.error(`Cloudinary upload error: ${err.message}`);
+    
+    // Make sure to clean up temp file even if upload fails
+    if (file && file.path) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch (unlinkErr) {
+        console.warn(`Failed to delete temporary file: ${unlinkErr.message}`);
+      }
     }
-    throw new Error('Error uploading to Cloudinary: ' + err.message);
+    
+    throw new Error(`Image upload failed: ${err.message}`);
   }
 };
 
@@ -86,14 +114,14 @@ exports.createMedia = async (req, res) => {
     // Upload image to Cloudinary and get the URL
     const imageUrl = await uploadToCloudinary(image);
     
-    // Create media record in the repository
+    // Create media record in database
     const media = await mediaRepository.createMedia({
       title,
       type,
       status,
       rating: rating || null,
       review: review || null,
-      imageUrl, // Save the URL of the uploaded image
+      imageUrl
     });
 
     return baseResponse(res, true, 201, "Media created successfully", media);
@@ -123,7 +151,9 @@ exports.updateMedia = async (req, res) => {
   }
 
   try {
-    let imageUrl = null;
+    let imageUrl = undefined;
+    
+    // Only upload new image if one was provided
     if (image) {
       imageUrl = await uploadToCloudinary(image);
     }

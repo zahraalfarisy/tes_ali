@@ -1,5 +1,4 @@
 const { query } = require("../database/pgDatabase");
-const fs = require('fs');
 
 exports.getAllMedia = async () => {
   const result = await query("SELECT * FROM media ORDER BY created_at DESC");
@@ -28,21 +27,55 @@ exports.updateMedia = async (id, mediaData) => {
 
   const { title, type, status, rating, review, imageUrl } = mediaData;
   
-  // If we have a new image URL, use it; otherwise keep the existing one
-  const newImageUrl = imageUrl || existingMedia.image_url;
+  // If no new image was uploaded, keep the existing one
+  const finalImageUrl = imageUrl !== undefined ? imageUrl : existingMedia.image_url;
 
-  const result = await query(
-    `UPDATE media 
-     SET title = COALESCE($1, title), 
-         type = COALESCE($2, type), 
-         status = COALESCE($3, status), 
-         image_url = $4, 
-         rating = COALESCE($5, rating), 
-         review = COALESCE($6, review) 
-     WHERE id = $7 RETURNING *`,
-    [title, type, status, newImageUrl, rating, review, id]
-  );
+  // Build SET clause dynamically
+  let setClause = [];
+  let params = [];
+  let paramIndex = 1;
+  
+  // Only update fields that were provided
+  if (title !== undefined) {
+    setClause.push(`title = $${paramIndex++}`);
+    params.push(title);
+  }
+  
+  if (type !== undefined) {
+    setClause.push(`type = $${paramIndex++}`);
+    params.push(type);
+  }
+  
+  if (status !== undefined) {
+    setClause.push(`status = $${paramIndex++}`);
+    params.push(status);
+  }
+  
+  // Always include image_url in the update
+  setClause.push(`image_url = $${paramIndex++}`);
+  params.push(finalImageUrl);
+  
+  if (rating !== undefined) {
+    setClause.push(`rating = $${paramIndex++}`);
+    params.push(rating);
+  }
+  
+  if (review !== undefined) {
+    setClause.push(`review = $${paramIndex++}`);
+    params.push(review);
+  }
+  
+  // Add id as the last parameter
+  params.push(id);
+  
+  const queryText = `
+    UPDATE media 
+    SET ${setClause.join(', ')}
+    WHERE id = $${paramIndex}
+    RETURNING *
+  `;
 
+  const result = await query(queryText, params);
   return result.rows[0];
 };
 

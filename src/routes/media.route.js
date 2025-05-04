@@ -2,30 +2,17 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const os = require('os');
 const mediaController = require('../controllers/media.controller');
-const fs = require('fs');
 
-// Create temp directory for multer if it doesn't exist
-const tempDir = path.join(__dirname, '..', '..', 'tmp');
-try {
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-} catch (err) {
-  console.warn('Unable to create temp directory, using os.tmpdir() instead');
-  // This fallback will work in Vercel's environment
-  const os = require('os');
-  tempDir = os.tmpdir();
-}
-
-// Configure multer for file uploads
+// Configure multer to use OS temp directory
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, tempDir)
+    cb(null, os.tmpdir());
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname))
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
 
@@ -46,7 +33,7 @@ const upload = multer({
 });
 
 // Get all media
-router.get('/media/', mediaController.getAllMedia);
+router.get('/media', mediaController.getAllMedia);
 
 // Get media by id
 router.get('/media/:id', mediaController.getMediaById);
@@ -55,7 +42,7 @@ router.get('/media/:id', mediaController.getMediaById);
 router.get('/media/filter/:type', mediaController.filterMedia);
 
 // Create new media
-router.post('/media/', upload.single('image'), mediaController.createMedia);
+router.post('/media', upload.single('image'), mediaController.createMedia);
 
 // Update media
 router.put('/media/:id', upload.single('image'), mediaController.updateMedia);
