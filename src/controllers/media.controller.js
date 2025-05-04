@@ -1,29 +1,29 @@
-const AWS = require('aws-sdk');
+const cloudinary = require('cloudinary').v2;
 const mediaRepository = require('../repositories/media.repository');
 const baseResponse = require('../utils/baseResponse');
+const fs = require('fs');
+const path = require('path');
 
-// Configure AWS S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: 'dgbrnqwfe',
+  api_key: '675297929318649',
+  api_secret: 'WK2khkxX4g67qth5LzAnKHZ34XA'
 });
 
-// Function to upload file to AWS S3
-const uploadToS3 = async (file) => {
-  const params = {
-    Bucket: process.env.AWS_BUCKET_NAME, // Your S3 bucket name
-    Key: `uploads/${file.originalname}`, // Key for the file in the S3 bucket
-    Body: file.buffer, // The file content
-    ContentType: file.mimetype,
-    ACL: 'public-read', // Make the file public or private as needed
-  };
-
+// Upload to Cloudinary function
+const uploadToCloudinary = async (file) => {
   try {
-    const data = await s3.upload(params).promise();
-    return data.Location; // Return the file URL
+    const result = await cloudinary.uploader.upload(file.path);
+    // Delete the local file after upload
+    fs.unlinkSync(file.path);
+    return result.secure_url;
   } catch (err) {
-    throw new Error('Error uploading to S3: ' + err.message);
+    // Make sure to delete the local file even if upload fails
+    if (file.path && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+    throw new Error('Error uploading to Cloudinary: ' + err.message);
   }
 };
 
@@ -83,8 +83,8 @@ exports.createMedia = async (req, res) => {
   }
 
   try {
-    // Upload image to S3 and get the URL
-    const imageUrl = await uploadToS3(image);
+    // Upload image to Cloudinary and get the URL
+    const imageUrl = await uploadToCloudinary(image);
     
     // Create media record in the repository
     const media = await mediaRepository.createMedia({
@@ -123,13 +123,19 @@ exports.updateMedia = async (req, res) => {
   }
 
   try {
+    let imageUrl = null;
+    if (image) {
+      imageUrl = await uploadToCloudinary(image);
+    }
+
     const media = await mediaRepository.updateMedia(id, {
       title,
       type,
       status,
       rating,
       review,
-    }, image);
+      imageUrl
+    });
 
     return baseResponse(res, true, 200, "Media updated successfully", media);
   } catch (error) {

@@ -3,11 +3,25 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const mediaController = require('../controllers/media.controller');
+const fs = require('fs');
+
+// Create temp directory for multer if it doesn't exist
+const tempDir = path.join(__dirname, '..', '..', 'tmp');
+try {
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Unable to create temp directory, using os.tmpdir() instead');
+  // This fallback will work in Vercel's environment
+  const os = require('os');
+  tempDir = os.tmpdir();
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/')
+    cb(null, tempDir)
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)

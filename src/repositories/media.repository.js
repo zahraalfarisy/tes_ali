@@ -1,4 +1,5 @@
-const { query, cloudinary } = require("../database/pgDatabase");
+const { query } = require("../database/pgDatabase");
+const fs = require('fs');
 
 exports.getAllMedia = async () => {
   const result = await query("SELECT * FROM media ORDER BY created_at DESC");
@@ -10,23 +11,8 @@ exports.getMediaById = async (id) => {
   return result.rows[0];
 };
 
-exports.createMedia = async (mediaData, image) => {
-  let imageUrl = null;
-
-  if (image) {
-    try {
-      const uploadRes = await cloudinary.uploader.upload(image.path);
-      imageUrl = uploadRes.secure_url;
-      fs.unlink(image.path, (err) => {
-        if (err) console.error("Error deleting temp file:", err);
-      });
-    } catch (err) {
-      console.error("Cloudinary upload error:", err);
-      throw new Error(`Image upload failed: ${err.message}`);
-    }
-  }
-
-  const { title, type, status, rating, review } = mediaData;
+exports.createMedia = async (mediaData) => {
+  const { title, type, status, rating, review, imageUrl } = mediaData;
 
   const result = await query(
     "INSERT INTO media (title, type, status, image_url, rating, review) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
@@ -36,26 +22,14 @@ exports.createMedia = async (mediaData, image) => {
   return result.rows[0];
 };
 
-exports.updateMedia = async (id, mediaData, image) => {
+exports.updateMedia = async (id, mediaData) => {
   const existingMedia = await exports.getMediaById(id);
   if (!existingMedia) throw new Error("Media not found");
 
-  let imageUrl = existingMedia.image_url;
-
-  if (image) {
-    try {
-      const uploadRes = await cloudinary.uploader.upload(image.path);
-      imageUrl = uploadRes.secure_url;
-      fs.unlink(image.path, (err) => {
-        if (err) console.error("Error deleting temp file:", err);
-      });
-    } catch (err) {
-      console.error("Cloudinary upload error:", err);
-      throw new Error(`Image upload failed: ${err.message}`);
-    }
-  }
-
-  const { title, type, status, rating, review } = mediaData;
+  const { title, type, status, rating, review, imageUrl } = mediaData;
+  
+  // If we have a new image URL, use it; otherwise keep the existing one
+  const newImageUrl = imageUrl || existingMedia.image_url;
 
   const result = await query(
     `UPDATE media 
@@ -66,7 +40,7 @@ exports.updateMedia = async (id, mediaData, image) => {
          rating = COALESCE($5, rating), 
          review = COALESCE($6, review) 
      WHERE id = $7 RETURNING *`,
-    [title, type, status, imageUrl, rating, review, id]
+    [title, type, status, newImageUrl, rating, review, id]
   );
 
   return result.rows[0];
